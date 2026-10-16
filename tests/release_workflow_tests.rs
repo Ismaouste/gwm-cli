@@ -946,6 +946,15 @@ fn docs_sync_workflow_grants_nothing() {
 /// `INHERITS_THE_WRITE_TOKEN` may take the workflow grant, and any other job
 /// must carry `contents: read`. There is no such job today, which is precisely
 /// why the rule is written now rather than when one appears.
+///
+/// The same ceiling as the sibling, stated here because "the same split" is
+/// not the same as the same coverage: the sweep below exempts both named jobs,
+/// and of the two only `release` has its absence of a job-level
+/// `permissions:` pinned, by `assert_job_as_written`. So `build`'s job level
+/// is read by nothing in this file, and a `write-all` written there would pass
+/// every test. It inherits on purpose and restricting it is the same one-line
+/// change the sibling leaves out of this issue; what is new is that it is now
+/// written down rather than implied by a rule that sounds total.
 #[test]
 fn pre_release_workflow_grants_write_only_to_build_and_publish() {
   let path = ".github/workflows/pre-release.yml";

@@ -132,8 +132,16 @@ fn every_docs_page_closes_its_code_fences() {
   // Deliberately under, the policy for a high-churn corpus (#649): a markdown
   // line is not an owned unit, every rewrite moves the count, and an exact
   // floor would redden a paragraph deletion. ~80% of what the tree reads
-  // today, which still catches the failure this exists for: a fence tracker
-  // stuck on, swallowing whole pages.
+  // today.
+  //
+  // What this floor proves, and only this: the walk reached the pages and read
+  // their lines. It cannot prove the fence tracking below works, because
+  // `inspected` counts every line before the fence test runs, so a tracker
+  // stuck on leaves the count untouched. The sibling's floor can make that
+  // claim and this one cannot, which is why the wording is not shared: here
+  // the failure mode caught is a `git ls-files` that stops matching, or a
+  // `docs/` that moves, emptying the loop while the assertion below reads an
+  // empty `unclosed`.
   assert!(
     inspected >= 11500,
     "expected the walk to read the lines of the pages under docs/, found {inspected}"

@@ -243,7 +243,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release_workflow_tests` floors were re-measured and are exactly tight, so
   they are untouched.
 
-  Eleven sweeps over `docs/` had no floor at all, or `!pages.is_empty()`, which
+  Eight sweeps over `docs/` had no floor at all, or `!pages.is_empty()`, which
   proves a page was found and not that a line of it was inspected. Each now
   counts what it inspects, at the point of inspection rather than of discovery:
   `parsed` after `description()` returns `Some`, `measured` after `image_size`
