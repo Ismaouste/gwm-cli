@@ -52,9 +52,7 @@ fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
 ///
 /// The count is returned rather than the offenders alone (#649) because
 /// `pages.is_empty()` proves a page was found, not that a line of it was
-/// inspected: a fence tracker stuck on, which is what an unclosed fence does,
-/// skips every line of a page and reports no offender exactly like a clean
-/// page.
+/// inspected, and a page can be walked while almost none of it is read.
 ///
 /// Fenced blocks are skipped because a page is allowed to *show* the syntax it
 /// does not use. Line endings are normalised first: Windows runners check out
@@ -87,11 +85,15 @@ fn container_lines(page: &Path) -> (usize, Vec<(usize, String)>) {
 ///
 /// Not a style rule: two guards follow fences to decide what to skip, this
 /// file's `container_lines` and `docs_assets_tests::image_targets`, and both
-/// toggle on a line starting with ` ``` `. An unclosed fence leaves the
-/// toggle on for the rest of the file, so everything after it is read as
-/// fenced and skipped. A `:::` directive or a broken image reference below an
-/// orphan fence is invisible to the guard that exists to catch it, and the
-/// guard stays green.
+/// toggle on a line starting with ` ``` `. An unclosed fence inverts that
+/// toggle for the rest of the file: the lines that were being read start
+/// being skipped, and the lines inside the page's real fenced blocks start
+/// being read. Measured on `docs/4.configuration/1.gwm-toml.md`, one orphan
+/// fence at the top takes it from 855 lines read to 301, not to zero, which
+/// is worth stating because "skips everything below" is the intuitive model
+/// and it is wrong. Either way the page is no longer inspected as written, so
+/// a `:::` directive or a broken image reference can sit in the half that
+/// went unread while the guard reports nothing.
 ///
 /// `docs/fr/6.development/1.testing.md` carried one at its last line when this
 /// was written, so nothing was blinded, which is exactly how such a line
@@ -134,11 +136,16 @@ fn every_docs_page_closes_its_code_fences() {
   // floor would redden a paragraph deletion. ~80% of what the tree reads
   // today.
   //
-  // What this floor proves, and only this: the walk reached the pages and read
-  // their lines, so a `git ls-files` that stops matching or a `docs/` that
-  // moves cannot empty the loop while the assertion below reads an empty
-  // `unclosed`. It says nothing about the fence tracking, because `inspected`
+  // What this floor proves: the walk reached the pages and read their lines.
+  // It says nothing about the fence tracking below, because `inspected`
   // counts every line before the fence test runs.
+  //
+  // It says nothing more than that on purpose. Three review passes on this
+  // file each found the comment beside a floor claiming a failure the floor
+  // cannot see, so the rule these two now follow is: name what is counted and
+  // which policy sets the number, and leave the failure modes to whoever
+  // measures one. A derived figure in a comment drifts exactly like the floor
+  // it describes, with nothing to catch it.
   assert!(
     inspected >= 11500,
     "expected the walk to read the lines of the pages under docs/, found {inspected}"
@@ -176,14 +183,9 @@ fn docs_carry_no_container_directives() {
   // floor would redden a paragraph deletion. ~80% of the 11065 unfenced lines
   // the tree reads today.
   //
-  // The reach of that choice, measured rather than assumed: the slack is 2265
-  // lines, and the largest page is 1235, so a single page going dark inside an
-  // orphan fence never breaches this floor. It fires when the tracking breaks
-  // tree-wide, which takes roughly two of the largest pages or seventeen
-  // average ones. The single-fence case belongs to
-  // `every_docs_page_closes_its_code_fences`, which is why that guard exists
-  // instead of this floor being raised: raising a deliberately-under floor to
-  // reach one page would redden every ordinary docs edit.
+  // A floor set under by design cannot also be a per-page check, which is why
+  // `every_docs_page_closes_its_code_fences` exists beside it rather than this
+  // number being raised to reach one page.
   assert!(
     inspected >= 8800,
     "expected the walk to read the unfenced lines of the {} pages under docs/, found {inspected}",

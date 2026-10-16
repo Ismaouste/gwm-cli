@@ -357,9 +357,11 @@ fn every_capture_ships_at_retina_density() {
     let Some((width, _)) = image_size(&asset) else {
       panic!("{} is neither a PNG nor a GIF", asset.display());
     };
-    // After the header was read, not after the file was listed: a
-    // `git ls-files` that stopped matching and an `image_size` that stopped
-    // parsing are two different failures and this counts the second.
+    // Counts the assets listed, and only that. An `image_size` that stops
+    // parsing panics on the line above before ever reaching here, so this
+    // floor cannot be what catches it; what it catches is a `capture_files()`
+    // that stops matching, which empties the loop with `thin` empty and the
+    // test green.
     measured += 1;
     if width < MIN_CAPTURE_WIDTH {
       thin.push(format!("{} is {width}px wide", asset.display()));

@@ -252,8 +252,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Eight sweeps over `docs/` had no floor at all, or `!pages.is_empty()`, which
   proves a page was found and not that a line of it was inspected. Each now
   counts what it inspects, at the point of inspection rather than of discovery:
-  `parsed` after `description()` returns `Some`, `measured` after `image_size`
-  reads a header, `resolved` per image reference rather than per page. Today
+  `parsed` after `description()` returns `Some`, `resolved` per image reference
+  rather than per page. Today
   that reads 54 image references, 40 mirrored pages, 30 assets, 29 tracked
   captures, 25 tapes, 81 descriptions, 1600 same-locale pairs and 11065
   unfenced lines.
@@ -273,8 +273,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs_callout_tests::container_lines` and
   `docs_assets_tests::image_targets` both skip fenced blocks, because a page is
   allowed to show syntax it does not use, and both toggle on a line starting
-  with three backticks. An unclosed fence leaves that toggle on for the rest of
-  the file, so a `:::` directive or a broken image reference below it is
+  with three backticks. An unclosed fence inverts that toggle for the rest of
+  the file: the lines being read start being skipped and the page's real fenced
+  blocks start being read. On `docs/4.configuration/1.gwm-toml.md` that takes
+  one page from 855 lines read to 301, not to zero. Either way a `:::`
+  directive or a broken image reference can sit in the half that went unread,
   invisible to the guard that exists to catch it, with the guard green.
 
   `docs/fr/6.development/1.testing.md` carried an orphan fence at line 200,
