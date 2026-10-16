@@ -31,10 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   why the rule is written before one appears rather than after.
 
   Compared as parsed values and never through `as_str()`, which reads `None`
-  for `{}` and for `write-all` alike and so cannot tell a grant from its
-  absence (#669). Four mutations, each applied alone: both grants flipped to
-  `write-all`, a scope written on `docs-sync.yml`'s only job, and a third job
-  added to `pre-release.yml` after the publish with no grant of its own.
+  for `{}` exactly as it does for a key that is not there, so a reader asking
+  for a string cannot tell the repo's strongest grant from no grant at all.
+  `write-all` is the other half of the same cause and not the same trap: it is
+  a string, reads `Some`, and defeats a *presence* check instead, which is how
+  it passed the existing sweep (#669). Four mutations, each applied alone:
+  both grants flipped to `write-all`, a scope written on `docs-sync.yml`'s
+  only job, and a third job added to `pre-release.yml` after the publish with
+  no grant of its own.
 
 - **`ci.yml` declared no `permissions:`, so its nine jobs took whatever the
   repository setting said**
@@ -239,9 +243,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   states the rule: "the floor moves up when a binary is added, never down
   without saying why". Two env-rewriting binaries were added and it stayed at
   9, so two could have dropped out of the `set_var` / `remove_var` audit
-  entirely with the count still above the floor. The three other
+  entirely with the count still above the floor. The other
   `release_workflow_tests` floors were re-measured and are exactly tight, so
-  they are untouched.
+  they are untouched: the file holds four besides the raised one, `audited >=
+  4`, `jobs.len() >= 9`, `swept >= 4` and `swept >= 3`, each equal to what the
+  tree reads today.
 
   Eight sweeps over `docs/` had no floor at all, or `!pages.is_empty()`, which
   proves a page was found and not that a line of it was inspected. Each now

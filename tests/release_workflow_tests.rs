@@ -574,9 +574,17 @@ release: {}
   assert_eq!(string_keys(jobs.as_mapping().unwrap(), "jobs"), ["build", "release"]);
 }
 
-/// The jobs of `release.yml` allowed to inherit the workflow's `contents:
-/// write`: `release` publishes, and `build` runs before it (see
-/// `release_workflow_grants_write_only_to_build_and_publish`).
+/// The jobs allowed to inherit a workflow's `contents: write`: `release`
+/// publishes, and `build` runs before it.
+///
+/// Read by two tests over two files since #681,
+/// `release_workflow_grants_write_only_to_build_and_publish` and
+/// `pre_release_workflow_grants_write_only_to_build_and_publish`, which is
+/// worth stating where the names live: both workflows happen to name their
+/// jobs the same way today, so renaming a job in one of them redefines the
+/// rule applied to the other. The presence loop in each test turns that into
+/// a red rather than a silent exemption, but the fix is then to split this
+/// const, not to rename the job back.
 const INHERITS_THE_WRITE_TOKEN: [&str; 2] = ["build", "release"];
 
 /// Issue #669. `release.yml` grants `contents: write` at the workflow level,
@@ -892,10 +900,19 @@ fn workflow_at(path: &str) -> serde_yaml_ng::Value {
 /// to a workflow whose only job dispatches an API call with a PAT that is not
 /// the workflow token.
 ///
-/// Compared as a `Value`, never through `as_str()`: `{}` is an empty mapping
-/// and `write-all` is a string, so a reader that asks for a string reads `None`
-/// for both and cannot tell the grant from its absence (the #669 lesson, and
-/// `string_keys` below for the key side of the same trap).
+/// Compared as a `Value`, never through `as_str()`, which defeats this check
+/// in the one direction that matters here: `{}` is an empty mapping, so
+/// `as_str()` reads `None` for it exactly as it does for a key that is not
+/// there, and the strongest grant in the repo becomes indistinguishable from
+/// no grant at all. Measured on serde_yaml_ng 0.10: `{}` and an absent key
+/// both read `None`, and only `is_null()` separates them.
+///
+/// `write-all` is a different trap and not this one, since it is a string and
+/// reads `Some("write-all")`. It defeats a *presence* check instead, which is
+/// what `every_workflow_declares_its_permissions` does and why that sweep
+/// stayed green over both grants until these tests existed. Two mechanisms,
+/// one cause: a reader narrower than the YAML it reads (#669, and
+/// `string_keys` below for the key side).
 #[test]
 fn docs_sync_workflow_grants_nothing() {
   let path = DOCS_SYNC;
