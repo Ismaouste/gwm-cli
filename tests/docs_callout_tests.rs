@@ -89,7 +89,7 @@ fn container_lines(page: &Path) -> (usize, Vec<(usize, String)>) {
 /// toggle for the rest of the file: the lines that were being read start
 /// being skipped, and the lines inside the page's real fenced blocks start
 /// being read. Measured on `docs/4.configuration/1.gwm-toml.md`, one orphan
-/// fence at the top takes it from 855 lines read to 301, not to zero, which
+/// fence at the top takes it from 854 lines read to 301, not to zero, which
 /// is worth stating because "skips everything below" is the intuitive model
 /// and it is wrong. Either way the page is no longer inspected as written, so
 /// a `:::` directive or a broken image reference can sit in the half that
@@ -152,8 +152,9 @@ fn every_docs_page_closes_its_code_fences() {
   );
   assert!(
     unclosed.is_empty(),
-    "these pages open a code fence they never close, so everything below it reads as fenced \
-     and both `container_lines` and `docs_assets_tests::image_targets` skip it:\n  {}",
+    "these pages open a code fence they never close, which inverts the fence parity below it: \
+     `container_lines` and `docs_assets_tests::image_targets` both read the half of the page \
+     they should skip and skip the half they should read:\n  {}",
     unclosed.join("\n  ")
   );
 }

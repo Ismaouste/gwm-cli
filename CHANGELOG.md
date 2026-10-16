@@ -276,7 +276,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with three backticks. An unclosed fence inverts that toggle for the rest of
   the file: the lines being read start being skipped and the page's real fenced
   blocks start being read. On `docs/4.configuration/1.gwm-toml.md` that takes
-  one page from 855 lines read to 301, not to zero. Either way a `:::`
+  one page from 854 lines read to 301, not to zero. Either way a `:::`
   directive or a broken image reference can sit in the half that went unread,
   invisible to the guard that exists to catch it, with the guard green.
 
