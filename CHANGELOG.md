@@ -227,11 +227,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#649](https://github.com/kbrdn1/gwm-cli/issues/649)).
   A floor is the `assert!(count >= N)` that proves a sweep inspected something
   rather than passing over an empty corpus, which is the defect class this repo
-  has hit five times. Four had drifted, read by inflating each to `9999999` and
+  has hit five times. Six had drifted, read by inflating each to `9999999` and
   taking the counter out of the panic: `env_guard_invariant_tests` `audited`
   said 9 against 11, `em_dash_guard_tests` `scanned` said 4000 against 5610 and
-  `visited` 30 against 75, and `release_workflow_tests` `audited` said 8
-  against 11.
+  `visited` 30 against 75, `release_workflow_tests` `audited` said 8 against
+  11, and the two `naming_tests` token scans said 5 against 7. The issue body
+  had listed four; re-measuring the rest of the audit scope found the last two
+  rather than trusting that list.
 
   The `env_guard` one is the case that matters, because the comment beside it
   states the rule: "the floor moves up when a binary is added, never down

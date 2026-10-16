@@ -186,6 +186,7 @@ fn french_mirrors_reference_the_same_captures() {
   let fr_root = root.join("fr");
   let mut divergent = Vec::new();
   let mut compared = 0usize;
+  let mut names_read = 0usize;
   for page in markdown_pages() {
     if page.starts_with(&fr_root) {
       continue;
@@ -200,6 +201,12 @@ fn french_mirrors_reference_the_same_captures() {
     compared += 1;
     let en = referenced_basenames(&page);
     let fr = referenced_basenames(&mirror);
+    // Counted here and not at `mirror.exists()` above, for the reason the
+    // sibling guard states: the pair is what this sweep discovers, a basename
+    // is what it inspects. With only the pair counted, `referenced_basenames`
+    // returning nothing on both sides compares an empty set against an empty
+    // set, 40 times, and the guard is green having read no reference at all.
+    names_read += en.len() + fr.len();
     if en != fr {
       divergent.push(format!(
         "{}\n    EN: {:?}\n    FR: {:?}",
@@ -212,6 +219,10 @@ fn french_mirrors_reference_the_same_captures() {
   // Exact, the policy this repo uses for a set of units it owns (#649): the
   // count moves only when somebody adds or removes one, so a red here is an
   // edit to acknowledge, not noise.
+  assert!(
+    names_read >= 54,
+    "expected the mirrored pages to yield the 54 known capture references, found {names_read}"
+  );
   assert!(
     compared >= 40,
     "expected the walk to find the 40 English pages with a French mirror, compared {compared}"
