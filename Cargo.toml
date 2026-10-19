@@ -221,7 +221,6 @@ tui-term = "0.3"
 # `rm -rf /tmp /` are visually close but semantically different, so
 # we hash bytes, not parsed TOML.
 sha2 = "0.11"
-serde_yaml_ng = "0.10.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde-saphyr = "2.0.0"
 saphyr = "0.2.2"
