@@ -47,17 +47,23 @@ fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
   }
 }
 
-/// `1`-based line numbers holding a container directive, outside code fences.
+/// The number of lines read outside code fences, and the `1`-based line
+/// numbers among them holding a container directive.
+///
+/// The count is returned rather than the offenders alone (#649) because
+/// `pages.is_empty()` proves a page was found, not that a line of it was
+/// inspected, and a page can be walked while almost none of it is read.
 ///
 /// Fenced blocks are skipped because a page is allowed to *show* the syntax it
 /// does not use. Line endings are normalised first: Windows runners check out
 /// with `core.autocrlf=true` and the fence tracking would otherwise see
 /// `` ```\r ``.
-fn container_lines(page: &Path) -> Vec<(usize, String)> {
+fn container_lines(page: &Path) -> (usize, Vec<(usize, String)>) {
   let text = fs::read_to_string(page)
     .unwrap_or_else(|err| panic!("{} must be readable: {err}", page.display()))
     .replace("\r\n", "\n");
   let mut out = Vec::new();
+  let mut inspected = 0usize;
   let mut in_fence = false;
   for (index, line) in text.lines().enumerate() {
     if line.trim_start().starts_with("```") {
@@ -67,11 +73,90 @@ fn container_lines(page: &Path) -> Vec<(usize, String)> {
     if in_fence {
       continue;
     }
+    inspected += 1;
     if line.trim_start().starts_with(":::") {
       out.push((index + 1, line.trim().to_string()));
     }
   }
-  out
+  (inspected, out)
+}
+
+/// Issue #649. Every page closes the code fences it opens.
+///
+/// Not a style rule: two guards follow fences to decide what to skip, this
+/// file's `container_lines` and `docs_assets_tests::image_targets`, and both
+/// toggle on a line starting with ` ``` `. An unclosed fence inverts that
+/// toggle for the rest of the file: the lines that were being read start
+/// being skipped, and the lines inside the page's real fenced blocks start
+/// being read. Measured on `docs/4.configuration/1.gwm-toml.md`, one orphan
+/// fence at the top takes it from 854 lines read to 301, not to zero, which
+/// is worth stating because "skips everything below" is the intuitive model
+/// and it is wrong. Either way the page is no longer inspected as written, so
+/// a `:::` directive or a broken image reference can sit in the half that
+/// went unread while the guard reports nothing.
+///
+/// `docs/fr/6.development/1.testing.md` carried one at its last line when this
+/// was written, so nothing was blinded, which is exactly how such a line
+/// survives: at end of file it costs nothing until someone appends to the page.
+///
+/// The rule here is copied from those two followers on purpose, ` ``` ` after
+/// `trim_start`, CRLF normalised first. A guard that recognised fences
+/// differently could pass while they are blind, which is the one thing it must
+/// not do. `docs/` holds no `~~~` fence and no four-backtick fence today, and
+/// neither follower would see one either, so parity counting is what matches
+/// what they do.
+#[test]
+fn every_docs_page_closes_its_code_fences() {
+  let root = docs_root();
+  let mut unclosed = Vec::new();
+  let mut inspected = 0usize;
+  for page in markdown_pages() {
+    let text = fs::read_to_string(&page)
+      .unwrap_or_else(|err| panic!("{} must be readable: {err}", page.display()))
+      .replace("\r\n", "\n");
+    let mut opened_at = None;
+    for (index, line) in text.lines().enumerate() {
+      inspected += 1;
+      if line.trim_start().starts_with("```") {
+        opened_at = match opened_at {
+          None => Some(index + 1),
+          Some(_) => None,
+        };
+      }
+    }
+    if let Some(line) = opened_at {
+      unclosed.push(format!(
+        "{}:{line}",
+        page.strip_prefix(&root).unwrap_or(&page).display()
+      ));
+    }
+  }
+  // Deliberately under, the policy for a high-churn corpus (#649): a markdown
+  // line is not an owned unit, every rewrite moves the count, and an exact
+  // floor would redden a paragraph deletion. ~80% of what the tree reads
+  // today.
+  //
+  // What this floor proves: the walk reached the pages and read their lines.
+  // It says nothing about the fence tracking below, because `inspected`
+  // counts every line before the fence test runs.
+  //
+  // It says nothing more than that on purpose. Three review passes on this
+  // file each found the comment beside a floor claiming a failure the floor
+  // cannot see, so the rule these two now follow is: name what is counted and
+  // which policy sets the number, and leave the failure modes to whoever
+  // measures one. A derived figure in a comment drifts exactly like the floor
+  // it describes, with nothing to catch it.
+  assert!(
+    inspected >= 11500,
+    "expected the walk to read the lines of the pages under docs/, found {inspected}"
+  );
+  assert!(
+    unclosed.is_empty(),
+    "these pages open a code fence they never close, which inverts the fence parity below it: \
+     `container_lines` and `docs_assets_tests::image_targets` both read the half of the page \
+     they should skip and skip the half they should read:\n  {}",
+    unclosed.join("\n  ")
+  );
 }
 
 #[test]
@@ -84,13 +169,29 @@ fn docs_carry_no_container_directives() {
   );
 
   let mut offenders = Vec::new();
+  let mut inspected = 0usize;
   for page in &pages {
     let relative = page.strip_prefix(env!("CARGO_MANIFEST_DIR")).unwrap_or(page);
-    for (line, text) in container_lines(page) {
+    let (read, found) = container_lines(page);
+    inspected += read;
+    for (line, text) in found {
       offenders.push(format!("{}:{line}: {text}", relative.display()));
     }
   }
 
+  // Deliberately under, the policy for a high-churn corpus (#649): a markdown
+  // line is not an owned unit, every rewrite moves the count, and an exact
+  // floor would redden a paragraph deletion. ~80% of the 11065 unfenced lines
+  // the tree reads today.
+  //
+  // A floor set under by design cannot also be a per-page check, which is why
+  // `every_docs_page_closes_its_code_fences` exists beside it rather than this
+  // number being raised to reach one page.
+  assert!(
+    inspected >= 8800,
+    "expected the walk to read the unfenced lines of the {} pages under docs/, found {inspected}",
+    pages.len()
+  );
   assert!(
     offenders.is_empty(),
     "{} container directive(s) found across {} pages; `:::` renders on neither \

@@ -574,9 +574,17 @@ release: {}
   assert_eq!(string_keys(jobs.as_mapping().unwrap(), "jobs"), ["build", "release"]);
 }
 
-/// The jobs of `release.yml` allowed to inherit the workflow's `contents:
-/// write`: `release` publishes, and `build` runs before it (see
-/// `release_workflow_grants_write_only_to_build_and_publish`).
+/// The jobs allowed to inherit a workflow's `contents: write`: `release`
+/// publishes, and `build` runs before it.
+///
+/// Read by two tests over two files since #681,
+/// `release_workflow_grants_write_only_to_build_and_publish` and
+/// `pre_release_workflow_grants_write_only_to_build_and_publish`, which is
+/// worth stating where the names live: both workflows happen to name their
+/// jobs the same way today, so renaming a job in one of them redefines the
+/// rule applied to the other. The presence loop in each test turns that into
+/// a red rather than a silent exemption, but the fix is then to split this
+/// const, not to rename the job back.
 const INHERITS_THE_WRITE_TOKEN: [&str; 2] = ["build", "release"];
 
 /// Issue #669. `release.yml` grants `contents: write` at the workflow level,
@@ -831,13 +839,15 @@ fn ci_workflow_grants_a_read_only_token() {
 /// one, whatever it is: `{}` for `docs-sync.yml`, `contents: read` for
 /// `ci.yml`, `contents: write` for the two that publish.
 ///
-/// Two of those four are also compared **by value**, `ci.yml` above and
-/// `release.yml` in `release_workflow_grants_write_only_to_build_and_publish`.
-/// The other two are not, and review measured what that leaves open:
-/// `docs-sync.yml` or `pre-release.yml` flipped to `permissions: write-all`
-/// keeps the suite green. That is a gap this issue did not open and does not
-/// close, and the sentence says so rather than implying coverage that is not
-/// there.
+/// All four are also compared **by value**, each by its own test:
+/// `ci_workflow_grants_a_read_only_token`,
+/// `release_workflow_grants_write_only_to_build_and_publish`,
+/// `docs_sync_workflow_grants_nothing` and
+/// `pre_release_workflow_grants_write_only_to_build_and_publish`. The last two
+/// arrived with #681, after review measured that `write-all` on either of those
+/// files kept this suite green; the sentence above used to say so, and is
+/// reproduced here because it is the reason a fifth workflow needs a by-value
+/// test of its own and not just this one.
 ///
 /// This test is deliberately weaker than the by-value ones: it reads that the
 /// key exists, not what it says, because what a workflow needs is its own
@@ -874,6 +884,135 @@ fn every_workflow_declares_its_permissions() {
     "expected at least the 4 workflows this repo ships, found {swept}. The directory listing is \
      probably no longer seeing them, and the loop above would then pass over nothing"
   );
+}
+
+/// Any workflow by path, parsed. `ci_workflow()` is the `ci.yml`-shaped
+/// sibling of this one, kept because most of this file only ever reads that
+/// file.
+fn workflow_at(path: &str) -> serde_yaml_ng::Value {
+  serde_yaml_ng::from_str(&fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}")))
+    .unwrap_or_else(|e| panic!("{path} must be valid YAML: {e}"))
+}
+
+/// Issue #681. `docs-sync.yml` grants `permissions: {}`, the strongest
+/// statement in this repo and the one an edit widens most easily: it is
+/// triggered by a push to `main`, and `write-all` there would hand every scope
+/// to a workflow whose only job dispatches an API call with a PAT that is not
+/// the workflow token.
+///
+/// Compared as a `Value`, never through `as_str()`, which defeats this check
+/// in the one direction that matters here: `{}` is an empty mapping, so
+/// `as_str()` reads `None` for it exactly as it does for a key that is not
+/// there, and the strongest grant in the repo becomes indistinguishable from
+/// no grant at all. Measured on serde_yaml_ng 0.10: `{}` and an absent key
+/// both read `None`, and only `is_null()` separates them.
+///
+/// `write-all` is a different trap and not this one, since it is a string and
+/// reads `Some("write-all")`. It defeats a *presence* check instead, which is
+/// what `every_workflow_declares_its_permissions` does and why that sweep
+/// stayed green over both grants until these tests existed. Two mechanisms,
+/// one cause: a reader narrower than the YAML it reads (#669, and
+/// `string_keys` below for the key side).
+#[test]
+fn docs_sync_workflow_grants_nothing() {
+  let path = DOCS_SYNC;
+  let workflow = workflow_at(path);
+  let nothing: serde_yaml_ng::Value = serde_yaml_ng::from_str("{}").unwrap();
+  assert_eq!(
+    workflow["permissions"], nothing,
+    "{path} must grant `permissions: {{}}` at the workflow level and nothing else (issue #681). \
+     It checks nothing out and authenticates its one API call with `secrets.DOCS_SITE_TOKEN`, so \
+     the workflow token needs no scope at all. Until this test the grant was read as present and \
+     never as what it said, which left `write-all` here passing the whole suite"
+  );
+
+  // Through `string_keys` (issue #673): GitHub runs a job keyed `true:`, the
+  // parser here reads a boolean, and a `filter_map` over string keys is what
+  // would skip it, carrying whatever it declares past this loop.
+  let jobs = string_keys(
+    workflow["jobs"]
+      .as_mapping()
+      .unwrap_or_else(|| panic!("{path} must define a `jobs:` mapping")),
+    &format!("{path} `jobs:`"),
+  );
+  for job in &jobs {
+    let declared = &workflow["jobs"][job.as_str()]["permissions"];
+    assert!(
+      declared.is_null() || *declared == nothing,
+      "{path} job `{job}` must leave `permissions:` out or restate the workflow's `{{}}`, and \
+       nothing else (issue #681). A job-level block replaces the workflow's wholesale, so any \
+       scope written here is a grant the workflow level says it does not need. Got \
+       `permissions: {declared:?}`"
+    );
+  }
+  assert!(
+    !jobs.is_empty(),
+    "expected the `notify` job {path} ships, found none. The mapping is probably no longer being \
+     read, and the loop above would then pass over nothing"
+  );
+}
+
+/// Issue #681, the other half. `pre-release.yml` publishes a GitHub Release
+/// from an rc/alpha/beta tag, so it grants `contents: write` at the workflow
+/// level and both its jobs inherit it. That grant was declared and compared by
+/// nothing, which is what #669 closed for `release.yml` and never reached
+/// here: `write-all` passed, and so did a third job added after the publish
+/// with the write token in hand.
+///
+/// Held to the same split as `release.yml`: only the jobs in
+/// `INHERITS_THE_WRITE_TOKEN` may take the workflow grant, and any other job
+/// must carry `contents: read`. There is no such job today, which is precisely
+/// why the rule is written now rather than when one appears.
+///
+/// The same ceiling as the sibling, stated here because "the same split" is
+/// not the same as the same coverage: the sweep below exempts both named jobs,
+/// and of the two only `release` has its absence of a job-level
+/// `permissions:` pinned, by `assert_job_as_written`. So `build`'s job level
+/// is read by nothing in this file, and a `write-all` written there would pass
+/// every test. It inherits on purpose and restricting it is the same one-line
+/// change the sibling leaves out of this issue; what is new is that it is now
+/// written down rather than implied by a rule that sounds total.
+#[test]
+fn pre_release_workflow_grants_write_only_to_build_and_publish() {
+  let path = ".github/workflows/pre-release.yml";
+  let workflow = workflow_at(path);
+  let write: serde_yaml_ng::Value = serde_yaml_ng::from_str("contents: write").unwrap();
+  assert_eq!(
+    workflow["permissions"], write,
+    "{path} must grant `contents: write` at the workflow level and nothing else (issue #681): \
+     the publish job inherits it to create the pre-release, and nothing here needs a second \
+     scope. `write-all` passed this file until this test existed"
+  );
+
+  let jobs = string_keys(
+    workflow["jobs"]
+      .as_mapping()
+      .unwrap_or_else(|| panic!("{path} must define a `jobs:` mapping")),
+    &format!("{path} `jobs:`"),
+  );
+  // Named as a floor and never an equality, the #669 reasoning: the loop below
+  // holds every job but these two to `contents: read` under whatever name, but
+  // a sweep cannot see a job that stopped existing, down to a `jobs:` mapping
+  // it reads nothing in. The cost is that a harmless rename goes red too.
+  for expected in INHERITS_THE_WRITE_TOKEN {
+    assert!(
+      jobs.iter().any(|j| j == expected),
+      "{path} must still define the `{expected}` job, got {jobs:?}"
+    );
+  }
+
+  let read: serde_yaml_ng::Value = serde_yaml_ng::from_str("contents: read").unwrap();
+  for job in jobs.iter().filter(|j| !INHERITS_THE_WRITE_TOKEN.contains(&j.as_str())) {
+    assert_eq!(
+      workflow["jobs"][job.as_str()]["permissions"],
+      read,
+      "{path} job `{job}` must carry `permissions: contents: read` (issue #681). Without it the \
+       job inherits the workflow's `contents: write`, and one step added to it can edit the \
+       pre-release notes #647 pins after the publish. Only {INHERITS_THE_WRITE_TOKEN:?} may \
+       inherit it. Got `permissions: {:?}`",
+      workflow["jobs"][job.as_str()]["permissions"]
+    );
+  }
 }
 
 /// Every workflow in the directory, so a file added later is audited by
@@ -944,15 +1083,19 @@ fn sibling_workflow_checkouts_do_not_persist_credentials() {
 
   // A glob that matches nothing passes vacuously, and so does one that stops
   // seeing the steps inside the files it matched. Both floors are the counts
-  // at the time of writing, minus release.yml.
+  // at the time of writing, minus release.yml: three sibling workflows and the
+  // eleven checkouts they hold. Exact, since a workflow file and a checkout
+  // step are both units this repo owns, so the floors move only when somebody
+  // edits one. The checkout floor read 8 against 11 until #649: three could
+  // have dropped out of the parse with this test green.
   assert!(
     swept >= 3,
     "expected at least 3 workflows besides release.yml, found {swept} — the directory listing is \
      probably no longer seeing them"
   );
   assert!(
-    audited >= 8,
-    "expected at least 8 credential-free checkouts outside release.yml, found {audited} — the \
+    audited >= 11,
+    "expected at least 11 credential-free checkouts outside release.yml, found {audited} — the \
      parser is probably no longer seeing the steps"
   );
 }
