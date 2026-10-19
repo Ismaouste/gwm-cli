@@ -168,6 +168,32 @@ fn equal_documents_compare_equal() {
   assert_ne!(doc("contents: read"), doc("contents: write"));
 }
 
+/// CRLF is a line break, so a workflow checked out on Windows parses the same.
+///
+/// This repo has a standing rule that a test parsing a repo file normalises
+/// line endings first, because the old reader needed it: the Windows runner
+/// checks the tree out with CRLF and a value would come back with a trailing
+/// `\r`, never equal to the same value parsed from a string literal. Measured
+/// here rather than assumed, and the normalisation is deliberately *not* added
+/// back: `saphyr` implements YAML 1.2, where CRLF is a line break, and the
+/// three workflow suites pass with all four files converted. The rule still
+/// holds for every other parser this repo reads a file with.
+#[test]
+fn crlf_parses_the_same_as_lf() {
+  let lf = doc("permissions:\n  contents: read\njobs:\n  build:\n    id: 1\n");
+  let crlf = doc("permissions:\r\n  contents: read\r\njobs:\r\n  build:\r\n    id: 1\r\n");
+  assert_eq!(
+    lf, crlf,
+    "a CRLF document must parse to the same tree as its LF twin, or every by-value \
+     comparison in these sweeps reads as changed on the Windows runner alone"
+  );
+  assert_eq!(
+    crlf.at("permissions").at("contents").as_str(),
+    Some("read"),
+    "a scalar read out of a CRLF document must not carry the carriage return"
+  );
+}
+
 /// Every workflow is a single document.
 ///
 /// Each sweep reads the first one and only the first, so a second would be
