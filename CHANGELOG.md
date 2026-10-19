@@ -12,6 +12,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`cargo audit` failed on `dev` itself: the YAML parser under the crate is
+  unmaintained** ([#688](https://github.com/kbrdn1/gwm-cli/issues/688)).
+  `RUSTSEC-2024-0449` marks `unsafe-libyaml` unmaintained: the repository was
+  archived on 2024-03-25, and the crate is a machine translation of libyaml's C
+  into unsafe Rust, so bugs found in it are not fixed upstream. It reached this
+  crate through `serde_yaml_ng 0.10.0`, a direct dependency, and the advisory
+  entered the database after this repo's last green `cargo audit`, which is why
+  a check that had been green went red without a line of code changing.
+
+  Replaced by the pair the advisory itself names, both written in safe Rust:
+  `serde-saphyr` for the one typed parse in `src/`, and `saphyr` for the
+  dynamic tree the workflow guards read. `unsafe-libyaml` is gone from the
+  graph entirely rather than satisfied by an `ignore`, which is what the
+  alternative would have been and which this repo's own rules forbid: a guard
+  silenced to make a check pass.
+
+  The two other candidates were ruled out by their own advisories rather than
+  by preference. `noyalib`, the advisory's second suggestion, carries
+  `RUSTSEC-2026-0333`; `serde_yml` carries `RUSTSEC-2025-0068`, unsound, with a
+  segfault reachable through its serializer. `serde_norway` depends on
+  `unsafe-libyaml-norway`, the same translated C under a new name, which
+  silences the advisory by renaming the crate rather than by fixing the cause.
+
+  A fourth route was measured and dropped, and is worth recording because it
+  looked free: deserialising into `serde_json::Value` through `serde-saphyr`
+  would have been a near-mechanical rename of all 130 reads. It sorts mapping
+  keys, so `string_keys`, which promises document order, would have lost that
+  guarantee while its own test kept passing on a sample that happens to be
+  alphabetical. It also reads the YAML key `true:` as the string `"true"`,
+  which leaves `string_keys` unable to fire at all and turns the guard from
+  #673 vacuous. Both measured before the route was abandoned.
+
+  `tests/workflow_reader_tests.rs` pins what the new reader answers, including
+  the one semantic that was inherited rather than chosen: an absent key and a
+  key whose value is YAML null read alike, because the old reader could not
+  tell them apart and every `must carry no X:` assertion was written against
+  that. While both crates were declared the two readers were compared head to
+  head, 93 comparisons with zero divergence.
+
 - **Two of the four workflow `permissions:` grants were compared by nothing**
   ([#681](https://github.com/kbrdn1/gwm-cli/issues/681)).
   `ci.yml` (#677) and `release.yml` (#669) each had a test reading their grant
